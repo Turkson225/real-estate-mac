@@ -1,0 +1,86 @@
+diff --git a/real-estate-routes-main/vite.config.ts b/real-estate-routes-main/vite.config.ts
+--- a/real-estate-routes-main/vite.config.ts
++++ b/real-estate-routes-main/vite.config.ts
+@@ -2,10 +2,26 @@
+ // SPA mode lets this application be deployed to a static host such as GitHub Pages.
+ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+ 
++// GitHub Pages hosts project sites below /<repository-name>/. Keep local
++// development at the root while giving the Pages build the correct public
++// base URL.
++const isGitHubPagesBuild = process.env.GITHUB_PAGES === "true";
++
+ export default defineConfig({
++  // GitHub Pages serves static files and does not run the generated Nitro
++  // server. The client SPA still talks directly to Supabase in the browser.
++  nitro: false,
++  vite: {
++    base: isGitHubPagesBuild ? "/real-estate-mac/" : "/",
++    // TanStack Start starts a preview server during the SPA prerender step.
++    // Binding it explicitly also keeps local/container builds deterministic.
++    preview: { host: "127.0.0.1" },
++  },
+   tanstackStart: {
+     spa: {
+       enabled: true,
++      // The shell is requested from / but emitted as the Pages entry file.
++      prerender: { outputPath: "/index" },
+     },
+     server: { entry: "server" },
+   },
+ });
+diff --git a/real-estate-routes-main/src/routes/__root.tsx b/real-estate-routes-main/src/routes/__root.tsx
+--- a/real-estate-routes-main/src/routes/__root.tsx
++++ b/real-estate-routes-main/src/routes/__root.tsx
+@@ -36,7 +36,7 @@
+         <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
+         <div className="mt-5 flex gap-2 justify-center">
+           <button onClick={() => { router.invalidate(); reset(); }} className="btn-primary">Try again</button>
+-          <a href="/" className="btn-outline">Home</a>
++          <Link to="/" className="btn-outline">Home</Link>
+         </div>
+       </div>
+     </div>
+@@ -60,7 +60,7 @@
+       { rel: "preconnect", href: "https://fonts.googleapis.com" },
+       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" },
+-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
++      { rel: "icon", href: `${import.meta.env.BASE_URL}favicon.ico`, type: "image/x-icon" },
+     ],
+   }),
+   shellComponent: RootShell,
+diff --git a/real-estate-routes-main/src/routes/auth.tsx b/real-estate-routes-main/src/routes/auth.tsx
+--- a/real-estate-routes-main/src/routes/auth.tsx
++++ b/real-estate-routes-main/src/routes/auth.tsx
+@@ -19,6 +19,11 @@
+   password: z.string().min(6, "At least 6 characters").max(72),
+ });
+ 
++function appUrl(path: string): string {
++  const appBase = new URL(import.meta.env.BASE_URL, window.location.origin);
++  return new URL(path.replace(/^\/+/, ""), appBase).toString();
++}
++
+ function AuthPage() {
+   const navigate = useNavigate();
+   const router = useRouter();
+@@ -47,7 +52,7 @@
+           email: parsed.data.email,
+           password: parsed.data.password,
+           options: {
+-            emailRedirectTo: `${window.location.origin}/dashboard`,
++            emailRedirectTo: appUrl("dashboard"),
+             data: { display_name: name.trim() || undefined },
+           },
+         });
+@@ -68,7 +73,7 @@
+     setError(null);
+     const result = await lovable.auth.signInWithOAuth("google", {
+-      redirect_uri: window.location.origin,
++      redirect_uri: appUrl("dashboard"),
+     });
+     if (result.error) setError(result.error.message);
+     if (result.redirected) return;
+     router.invalidate();
+     navigate({ to: "/dashboard", replace: true });
