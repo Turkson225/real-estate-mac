@@ -32,8 +32,6 @@ jobs:
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Prepare application source
         run: |
@@ -45,10 +43,12 @@ jobs:
         run: |
           if [ -z "${VITE_SUPABASE_URL:-}" ]; then
             value=$(sed -n 's/^VITE_SUPABASE_URL=//p' .build/real-estate-routes-main/.env | head -n 1)
+            value=${value#\"}; value=${value%\"}; value=${value#\'}; value=${value%\'}
             echo "VITE_SUPABASE_URL=$value" >> "$GITHUB_ENV"
           fi
           if [ -z "${VITE_SUPABASE_PUBLISHABLE_KEY:-}" ]; then
             value=$(sed -n 's/^VITE_SUPABASE_PUBLISHABLE_KEY=//p' .build/real-estate-routes-main/.env | head -n 1)
+            value=${value#\"}; value=${value%\"}; value=${value#\'}; value=${value%\'}
             echo "VITE_SUPABASE_PUBLISHABLE_KEY=$value" >> "$GITHUB_ENV"
           fi
           rm -f .build/real-estate-routes-main/.env
