@@ -1,0 +1,178 @@
+diff --git a/real-estate-routes-main/src/lib/locations.ts b/real-estate-routes-main/src/lib/locations.ts
+new file mode 100644
+--- /dev/null
++++ b/real-estate-routes-main/src/lib/locations.ts
+@@ -0,0 +1,51 @@
++export const COUNTRIES = [
++  "Afghanistan", "Albania", "Algeria", "Andorra", "Angola",
++  "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria",
++  "Azerbaijan",
++  "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium",
++  "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina",
++  "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi",
++  "Cabo Verde", "Cambodia", "Cameroon", "Canada",
++  "Central African Republic", "Chad", "Chile", "China", "Colombia",
++  "Comoros", "Congo (Republic of the)", "Costa Rica", "Côte d’Ivoire",
++  "Croatia", "Cuba", "Cyprus", "Czechia",
++  "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica",
++  "Dominican Republic",
++  "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea",
++  "Estonia", "Eswatini", "Ethiopia",
++  "Fiji", "Finland", "France",
++  "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada",
++  "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
++  "Haiti", "Honduras", "Hungary",
++  "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel",
++  "Italy",
++  "Jamaica", "Japan", "Jordan",
++  "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan",
++  "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya",
++  "Liechtenstein", "Lithuania", "Luxembourg",
++  "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta",
++  "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia",
++  "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique",
++  "Myanmar",
++  "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua",
++  "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway",
++  "Oman",
++  "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea",
++  "Paraguay", "Peru", "Philippines", "Poland", "Portugal",
++  "Qatar",
++  "Romania", "Russia", "Rwanda",
++  "Saint Kitts and Nevis", "Saint Lucia",
++  "Saint Vincent and the Grenadines", "Samoa", "San Marino",
++  "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia",
++  "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia",
++  "Solomon Islands", "Somalia", "South Africa", "South Korea",
++  "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden",
++  "Switzerland", "Syria",
++  "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga",
++  "Trinidad and Tobago", "Tunisia", "Türkiye", "Turkmenistan", "Tuvalu",
++  "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom",
++  "United States", "Uruguay", "Uzbekistan",
++  "Vanuatu", "Vatican City", "Venezuela", "Vietnam",
++  "Yemen",
++  "Zambia", "Zimbabwe",
++] as const;
+diff --git a/real-estate-routes-main/src/routes/index.tsx b/real-estate-routes-main/src/routes/index.tsx
+--- a/real-estate-routes-main/src/routes/index.tsx
++++ b/real-estate-routes-main/src/routes/index.tsx
+@@ -3,6 +3,7 @@
+ import { useState } from "react";
+ import { supabase } from "@/integrations/supabase/client";
+ import { CATEGORIES, categoryLabel, formatPrice, RENTABLE, type CategoryId, type Kind } from "@/lib/marketplace";
++import { COUNTRIES } from "@/lib/locations";
+ import hero from "@/assets/hero.jpg";
+ 
+ const CATEGORY_ICON: Record<CategoryId, string> = {
+@@ -96,14 +97,17 @@
+                   <option key={c.id} value={c.id}>{c.label}</option>
+                 ))}
+               </select>
+-              <input
++              <select
+                 aria-label="Location"
+                 value={location}
+                 onChange={(e) => setLocation(e.target.value)}
+-                onKeyDown={(e) => e.key === "Enter" && runSearch()}
+-                placeholder="Choose location"
+                 className="bg-background border border-border rounded-md px-3 py-2.5 text-sm"
+-              />
++              >
++                <option value="">Any country</option>
++                {COUNTRIES.map((country) => (
++                  <option key={country} value={country}>{country}</option>
++                ))}
++              </select>
+               <button onClick={runSearch} className="btn-primary !rounded-md">Search</button>
+             </div>
+           </div>
+diff --git a/real-estate-routes-main/src/routes/browse.tsx b/real-estate-routes-main/src/routes/browse.tsx
+--- a/real-estate-routes-main/src/routes/browse.tsx
++++ b/real-estate-routes-main/src/routes/browse.tsx
+@@ -3,10 +3,12 @@
+ import { z } from "zod";
+ import { supabase } from "@/integrations/supabase/client";
+ import { CATEGORIES, categoryLabel, formatPrice, RENTABLE, SELLABLE, type Kind, type CategoryId } from "@/lib/marketplace";
++import { COUNTRIES } from "@/lib/locations";
+ 
+ const searchSchema = z.object({
+   kind: z.enum(["sale", "rent"]).default("sale"),
+   category: z.enum(["car", "house", "land", "company", "business_idea", "office"]).optional(),
++  location: z.string().optional(),
+   q: z.string().optional(),
+   min: z.coerce.number().optional(),
+   max: z.coerce.number().optional(),
+@@ -27,12 +29,12 @@
+ });
+ 
+ function BrowsePage() {
+-  const { kind, category, q, min, max } = Route.useSearch();
++  const { kind, category, location, q, min, max } = Route.useSearch();
+   const navigate = Route.useNavigate();
+   const validCategories = kind === "rent" ? RENTABLE : SELLABLE;
+ 
+   const { data: listings, isLoading } = useQuery({
+-    queryKey: ["listings", kind, category, q, min, max],
++    queryKey: ["listings", kind, category, location, q, min, max],
+     queryFn: async () => {
+       let query = supabase
+         .from("listings")
+@@ -42,6 +44,7 @@
+         .order("created_at", { ascending: false })
+         .limit(60);
+       if (category) query = query.eq("category", category);
++      if (location) query = query.ilike("location", `%${location}%`);
+       if (q) query = query.ilike("title", `%${q}%`);
+       if (min != null) query = query.gte("price", min);
+       if (max != null) query = query.lte("price", max);
+@@ -51,7 +54,7 @@
+     },
+   });
+ 
+-  function update(patch: Partial<{ kind: Kind; category?: CategoryId; q?: string; min?: number; max?: number }>) {
++  function update(patch: Partial<{ kind: Kind; category?: CategoryId; location?: string; q?: string; min?: number; max?: number }>) {
+     navigate({ search: (prev: Record<string, unknown>) => ({ ...prev, ...patch }) as never, replace: true });
+   }
+ 
+@@ -85,9 +88,16 @@
+         ))}
+       </div>
+ 
+-      <div className="mt-4 grid sm:grid-cols-4 gap-3">
++      <div className="mt-4 grid sm:grid-cols-5 gap-3">
+         <input className="input-field sm:col-span-2" placeholder="Search title…" defaultValue={q ?? ""}
+           onChange={(e) => update({ q: e.target.value || undefined })} />
++        <select className="input-field" aria-label="Location" value={location ?? ""}
++          onChange={(e) => update({ location: e.target.value || undefined })}>
++          <option value="">Any country</option>
++          {COUNTRIES.map((country) => (
++            <option key={country} value={country}>{country}</option>
++          ))}
++        </select>
+         <input className="input-field" type="number" placeholder="Min price" defaultValue={min ?? ""}
+           onChange={(e) => update({ min: e.target.value ? Number(e.target.value) : undefined })} />
+         <input className="input-field" type="number" placeholder="Max price" defaultValue={max ?? ""}
+diff --git a/real-estate-routes-main/src/routes/_authenticated/sell.tsx b/real-estate-routes-main/src/routes/_authenticated/sell.tsx
+--- a/real-estate-routes-main/src/routes/_authenticated/sell.tsx
++++ b/real-estate-routes-main/src/routes/_authenticated/sell.tsx
+@@ -3,6 +3,7 @@
+ import { supabase } from "@/integrations/supabase/client";
+ import { CATEGORIES, RENTABLE, SELLABLE, type Kind, type CategoryId } from "@/lib/marketplace";
++import { COUNTRIES } from "@/lib/locations";
+ 
+ export const Route = createFileRoute("/_authenticated/sell")({
+   head: () => ({
+     meta: [
+@@ -128,7 +129,12 @@
+ 
+         <div>
+           <label className="text-xs uppercase tracking-widest text-muted-foreground">Location</label>
+-          <input name="location" maxLength={160} className="input-field mt-1" placeholder="City, region" />
++          <select name="location" defaultValue="" className="input-field mt-1">
++            <option value="">Select country</option>
++            {COUNTRIES.map((country) => (
++              <option key={country} value={country}>{country}</option>
++            ))}
++          </select>
+         </div>
