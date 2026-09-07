@@ -38,6 +38,7 @@ jobs:
           mkdir -p .build
           unzip -q real-estate-routes-main.zip -d .build
           patch -d .build -p1 < github-pages.patch
+          patch -d .build -p1 < country-locations.patch
 
       - name: Load public Supabase configuration
         run: |
