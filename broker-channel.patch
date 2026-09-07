@@ -1,0 +1,237 @@
+--- a/real-estate-routes-main/src/lib/marketplace.ts
++++ b/real-estate-routes-main/src/lib/marketplace.ts
+@@ -13,6 +13,8 @@
+ export type DealSide = "buy" | "sell";
+ 
+ export const BROKER_NAME = "ApexAnchor";
++export const BROKER_ADDRESS = "apexanchor";
++export const BROKER_PROFILE_PATH = `/broker/${BROKER_ADDRESS}`;
+ 
+ export function categoryLabel(id: string) {
+   return CATEGORIES.find((c) => c.id === id)?.label ?? id;
+--- a/real-estate-routes-main/src/routes/__root.tsx
++++ b/real-estate-routes-main/src/routes/__root.tsx
+@@ -11,6 +11,7 @@
+ 
+ import appCss from "../styles.css?url";
+ import { reportLovableError } from "../lib/lovable-error-reporting";
++import { BROKER_ADDRESS } from "@/lib/marketplace";
+ import { supabase } from "@/integrations/supabase/client";
+ 
+ function NotFoundComponent() {
+@@ -113,6 +114,7 @@
+             <nav className="flex items-center gap-1 text-sm">
+               <Link to="/browse" search={{ kind: "sale" }} className="btn-ghost">Browse to buy</Link>
+               <Link to="/browse" search={{ kind: "rent" }} className="btn-ghost">Browse to rent</Link>
++              <a href={`${import.meta.env.BASE_URL}broker/${BROKER_ADDRESS}`} className="btn-ghost hidden md:inline-flex">Broker channel</a>
+               {email ? (
+                 <>
+                   <Link to="/deals" className="btn-ghost hidden sm:inline-flex">Enquiries</Link>
+--- a/real-estate-routes-main/src/routes/listings.$id.tsx
++++ b/real-estate-routes-main/src/routes/listings.$id.tsx
+@@ -3,7 +3,7 @@
+ import { useEffect, useState } from "react";
+ import { z } from "zod";
+ import { supabase } from "@/integrations/supabase/client";
+-import { BROKER_NAME, categoryLabel, formatPrice, type Kind } from "@/lib/marketplace";
++import { BROKER_ADDRESS, BROKER_NAME, categoryLabel, formatPrice, type Kind } from "@/lib/marketplace";
+ 
+ export const Route = createFileRoute("/listings/$id")({
+   head: () => ({
+@@ -147,7 +147,7 @@
+           <div className="mt-8 card-warm p-6">
+             <p className="text-xs uppercase tracking-widest text-primary">How this works</p>
+             <p className="mt-2 text-foreground/90 leading-relaxed">
+-              Send {BROKER_NAME} your offer and any questions. Our team reviews it, confirms
++              Send <a href={`${import.meta.env.BASE_URL}broker/${BROKER_ADDRESS}`} className="underline underline-offset-4">@{BROKER_ADDRESS}</a> your offer and any questions. Our team reviews it, confirms
+               availability and gets back to you with the answer — all in one private thread.
+             </p>
+           </div>
+@@ -159,7 +159,7 @@
+             <p className="font-editorial text-3xl mt-1">{formatPrice(Number(listing.price), listing.currency, kind)}</p>
+             <div className="rule my-5" />
+             <p className="text-xs uppercase tracking-widest text-muted-foreground">Handled by</p>
+-            <p className="mt-1">{BROKER_NAME}</p>
++            <p className="mt-1">{BROKER_NAME} <span className="text-muted-foreground">· @{BROKER_ADDRESS}</span></p>
+             <p className="text-sm text-muted-foreground mt-1">Seller details stay private.</p>
+           </div>
+ 
+--- a/real-estate-routes-main/src/routes/_authenticated/sell.tsx
++++ b/real-estate-routes-main/src/routes/_authenticated/sell.tsx
+@@ -2,7 +2,7 @@
+ import { useState } from "react";
+ import { z } from "zod";
+ import { supabase } from "@/integrations/supabase/client";
+-import { CATEGORIES, RENTABLE, SELLABLE, type Kind, type CategoryId } from "@/lib/marketplace";
++import { BROKER_NAME, CATEGORIES, RENTABLE, SELLABLE, type Kind, type CategoryId } from "@/lib/marketplace";
+ import { COUNTRIES } from "@/lib/locations";
+ 
+ export const Route = createFileRoute("/_authenticated/sell")({
+@@ -24,6 +24,7 @@
+   category: z.enum(["car", "house", "land", "company", "business_idea", "office"]),
+   title: z.string().trim().min(4, "Title is too short").max(120),
+   description: z.string().trim().max(4000).optional(),
++  message: z.string().trim().min(5, "Tell the broker what you need").max(1000),
+   price: z.coerce.number().nonnegative("Price must be positive"),
+   currency: z.string().trim().min(3).max(4),
+   location: z.string().trim().max(160).optional(),
+@@ -48,6 +49,7 @@
+       kind, category,
+       title: fd.get("title"),
+       description: fd.get("description"),
++      message: fd.get("message"),
+       price: fd.get("price"),
+       currency: (fd.get("currency") as string) || "USD",
+       location: fd.get("location"),
+@@ -67,10 +69,33 @@
+       image_url: parsed.data.image_url || null,
+       status: "pending",
+     }).select("id").single();
++    if (error || !data) {
++      setSaving(false);
++      return setErr(error?.message ?? "Could not submit listing");
++    }
++    const { data: deal, error: dealError } = await supabase.from("deals").insert({
++      listing_id: data.id,
++      client_id: user.id,
++      side: "sell",
++      status: "open",
++      currency: parsed.data.currency.toUpperCase(),
++    }).select("id").single();
++
++    if (dealError || !deal) {
++      await supabase.from("listings").delete().eq("id", data.id);
++      setSaving(false);
++      return setErr(dealError?.message ?? "Could not open a private broker thread");
++    }
++
++    const { error: messageError } = await supabase.from("deal_messages").insert({
++      deal_id: deal.id,
++      sender_id: user.id,
++      from_broker: false,
++      body: parsed.data.message,
++    });
+     setSaving(false);
+-    if (error) return setErr(error.message);
+-    void data;
+-    navigate({ to: "/dashboard" });
++    if (messageError) return setErr(messageError.message);
++    navigate({ to: "/deals/$id", params: { id: deal.id } });
+   }
+ 
+   return (
+@@ -114,6 +139,11 @@
+           <textarea name="description" maxLength={4000} className="input-field mt-1 min-h-[140px]" placeholder="What makes it special?" />
+         </div>
+ 
++        <div>
++          <label className="text-xs uppercase tracking-widest text-muted-foreground">Private message to {BROKER_NAME}</label>
++          <textarea name="message" required maxLength={1000} className="input-field mt-1 min-h-[110px]" placeholder="Tell the broker about your selling request, preferred terms or questions." />
++        </div>
++
+         <div className="grid grid-cols-3 gap-3">
+           <div className="col-span-2">
+             <label className="text-xs uppercase tracking-widest text-muted-foreground">
+--- a/real-estate-routes-main/src/routes/sitemap[.]xml.ts
++++ b/real-estate-routes-main/src/routes/sitemap[.]xml.ts
+@@ -11,6 +11,7 @@
+           { path: "/", changefreq: "weekly", priority: "1.0" },
+           { path: "/browse?kind=sale", changefreq: "daily", priority: "0.9" },
+           { path: "/browse?kind=rent", changefreq: "daily", priority: "0.9" },
++          { path: "/broker/apexanchor", changefreq: "weekly", priority: "0.8" },
+           { path: "/auth", changefreq: "yearly", priority: "0.3" },
+         ];
+         const urls = entries.map(
+--- /dev/null
++++ b/real-estate-routes-main/src/routes/broker.$address.tsx
+@@ -0,0 +1,59 @@
++import { createFileRoute, Link } from "@tanstack/react-router";
++import { BROKER_ADDRESS, BROKER_NAME } from "@/lib/marketplace";
++
++export const Route = createFileRoute("/broker/$address")({
++  head: () => ({
++    meta: [
++      { title: "Broker channel — ApexAnchor" },
++      { name: "description", content: "Contact the ApexAnchor broker privately about buying or selling." },
++      { property: "og:title", content: "Broker channel — ApexAnchor" },
++      { property: "og:description", content: "A private channel for buyers, sellers and the ApexAnchor broker." },
++      { property: "og:type", content: "website" },
++      { name: "twitter:card", content: "summary" },
++    ],
++  }),
++  component: BrokerProfile,
++});
++
++function BrokerProfile() {
++  const { address } = Route.useParams();
++  const isKnownBroker = address.toLowerCase() === BROKER_ADDRESS;
++
++  if (!isKnownBroker) {
++    return (
++      <div className="max-w-xl mx-auto px-5 py-20 text-center">
++        <h1 className="font-editorial text-4xl">Broker address not found</h1>
++        <p className="text-muted-foreground mt-3">Check the address and try again.</p>
++        <Link to="/" className="btn-outline mt-6 inline-flex">Return home</Link>
++      </div>
++    );
++  }
++
++  return (
++    <div className="max-w-3xl mx-auto px-5 py-16">
++      <div className="card-warm p-8 md:p-12">
++        <p className="text-xs uppercase tracking-[0.2em] text-primary">Verified broker channel</p>
++        <h1 className="font-editorial text-5xl mt-3">Work with {BROKER_NAME}</h1>
++        <p className="text-lg text-muted-foreground mt-4 max-w-xl">
++          Every offer, question and selling request is handled privately by the broker before it moves forward.
++        </p>
++
++        <div className="mt-8 border-y border-border/70 py-5">
++          <p className="text-xs uppercase tracking-widest text-muted-foreground">Unique broker address</p>
++          <p className="font-editorial text-3xl mt-1">@{BROKER_ADDRESS}</p>
++          <p className="text-sm text-muted-foreground mt-2">Use this address when referring someone to the official ApexAnchor broker.</p>
++        </div>
++
++        <div className="mt-8 grid sm:grid-cols-3 gap-3">
++          <Link to="/browse" search={{ kind: "sale" }} className="btn-primary text-center">Buy an asset</Link>
++          <Link to="/sell" className="btn-outline text-center">Sell an asset</Link>
++          <Link to="/auth" className="btn-ghost text-center">Sign in</Link>
++        </div>
++
++        <p className="text-sm text-muted-foreground mt-6">
++          Buyers start a private thread from a listing. Sellers start one automatically when they submit an asset.
++        </p>
++      </div>
++    </div>
++  );
++}
+--- /dev/null
++++ b/real-estate-routes-main/supabase/migrations/20260907000000_secure_broker_messages.sql
+@@ -0,0 +1,28 @@
++-- Keep every deal thread private and prevent clients from impersonating the broker.
++DROP POLICY IF EXISTS "participants send messages" ON public.deal_messages;
++
++CREATE POLICY "clients send private messages" ON public.deal_messages
++FOR INSERT TO authenticated
++WITH CHECK (
++  sender_id = auth.uid()
++  AND from_broker = false
++  AND EXISTS (
++    SELECT 1
++    FROM public.deals d
++    WHERE d.id = deal_id
++      AND d.client_id = auth.uid()
++  )
++);
++
++CREATE POLICY "brokers send private messages" ON public.deal_messages
++FOR INSERT TO authenticated
++WITH CHECK (
++  sender_id = auth.uid()
++  AND from_broker = true
++  AND public.has_role(auth.uid(), 'broker')
++  AND EXISTS (
++    SELECT 1
++    FROM public.deals d
++    WHERE d.id = deal_id
++  )
++);
